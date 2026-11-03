@@ -35,8 +35,8 @@ class SpecialItem(pg.sprite.Sprite):
     """
     金のスペシャルアイテムを管理するクラス
     """
-    def init(self):
-        super().init()
+    def __init__(self):
+        super().__init__()
         self.image = pg.Surface((25, 25))
         self.image.fill((255, 215, 0))
         self.rect = self.image.get_rect(center=(random.randint(25, 775), 0))
@@ -53,7 +53,7 @@ class SpecialManager:
     """
     スペシャルアイテムの生成・当たり判定・描画を統括するクラス
     """
-    def init(self):
+    def __init__(self):
         self.specials = pg.sprite.Group()
 
     def update(self, player):
