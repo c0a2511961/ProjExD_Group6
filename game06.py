@@ -16,6 +16,29 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 # import feature_combo      # 追加4：連続キャッチによるコンボシステムと高度なスコア計算
 # import feature_scene      # 追加5：本格的なタイトル画面、リザルト画面、BGM管理
 
+# ---------------------------------------------------------
+# 画像を安全に探して読み込む補助関数
+# ---------------------------------------------------------
+def load_image(filename_stem, size):
+    """png/jpg や fig/ フォルダの有無に対応して画像を自動探索して読み込む"""
+    candidates = [
+        os.path.join("fig", f"{filename_stem}.png"),
+        os.path.join("fig", f"{filename_stem}.jpg"),
+        os.path.join("fig", f"{filename_stem}.jpeg"),
+        f"{filename_stem}.png",
+        f"{filename_stem}.jpg",
+        f"{filename_stem}.jpeg",
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                img = pg.image.load(path)
+                return pg.transform.scale(img, size).convert_alpha()
+            except Exception:
+                pass
+    # 画像がない場合はNoneを返して図形描写に切り替える
+    return None
+
 class Player(pg.sprite.Sprite):
     def __init__(self):
         super().__init__()
@@ -88,6 +111,177 @@ class Apple(pg.sprite.Sprite):
         if self.rect.top > 600:
             self.kill() # 画面外に出たら消去
 
+# =========================================================
+# ★追記：1. エネルギーシールド（取ったら5秒間バリア）
+# =========================================================
+class EnergyShield(pg.sprite.Sprite):
+
+    def __init__(self):
+        super().__init__()
+        # 画面サイズ40x40でシールド画像を読み込み（見つからない場合は水色枠）
+        img = load_image("shi-rudo", (40, 40))
+        if img:
+            self.image = img
+        else:
+            self.image = pg.Surface((40, 40))
+            self.image.fill((50, 200, 255))
+        
+        # 横軸ランダム、画面最上部から落下開始
+        self.rect = self.image.get_rect(center=(random.randint(30, 770), 0))
+        self.speed = random.randint(4, 7)
+
+    def update(self):
+        # 下方向に落下移動させて、画面外（y>600）に出たら自動削除
+        self.rect.y += self.speed
+        if self.rect.top > 600:  # 画面下に落ちたら消滅
+            self.kill()
+
+
+class ShieldManager:
+
+    def __init__(self):
+        self.shields = pg.sprite.Group()
+        self.duration = 5000  # バリアの持続時間：5秒（5000ミリ秒）
+        self.active_until = 0 #バリア終了タイマーの保管場所
+
+    def update(self, player):
+        # 1/600の確率でシールドアイテムを出現させる
+        if random.randint(1, 600) == 1:
+            self.shields.add(EnergyShield())
+
+        self.shields.update()
+
+        # プレイヤーと当たったら5秒後の時刻を計算して保持
+        if pg.sprite.spritecollide(player, self.shields, True):
+            self.active_until = pg.time.get_ticks() + self.duration
+
+    def is_active(self):
+        # 現在時刻が終了予定時刻より前なら有効状態と判定
+        return pg.time.get_ticks() < self.active_until
+
+    def draw(self, screen, player):
+        self.shields.draw(screen)
+        # バリア有効中はプレイヤーを囲む青い四角枠を描画
+        if self.is_active():
+            pg.draw.rect(
+                screen, (50, 200, 255), player.rect.inflate(16, 16), 3
+            )
+
+# =========================================================
+# ★追記：2. データチップ（画像: tippu.jpg / 即時+100点）
+# =========================================================
+class DataChip(pg.sprite.Sprite):
+
+    def __init__(self):
+        super().__init__()
+        # tippu.jpg を読み込み（無ければ青四角）
+        img = load_image("tippu", (40, 40))
+        if img:
+            self.image = img
+        else:
+            self.image = pg.Surface((40, 40))
+            self.image.fill((0, 200, 255))
+
+        self.rect = self.image.get_rect(center=(random.randint(30, 770), 0))
+        self.speed = random.randint(5, 8) # 他のアイテムより少し速く落ちる
+
+    def update(self):
+        # 落下処理（画面外で消去）
+        self.rect.y += self.speed
+        if self.rect.top > 600:
+            self.kill()
+
+class DataChipManager:
+
+    def __init__(self):
+        self.chips = pg.sprite.Group()
+
+    def update(self, player):
+        # 出現率：1/1000
+        if random.randint(1, 1000) == 1:
+            self.chips.add(DataChip())
+
+        self.chips.update()
+        # プレイヤーがキャッチしたら 1個につき+100点 加算
+        caught = pg.sprite.spritecollide(player, self.chips, True)
+        return len(caught) * 100
+
+    def draw(self, screen):
+        self.chips.draw(screen)
+
+
+# =========================================================
+# ★追記：3. ブラックホール（画像: kokuu.jpg / 取ったら5秒間吸引効果）
+# =========================================================
+class BlackHole(pg.sprite.Sprite):
+
+    def __init__(self):
+        super().__init__()
+        # kokuu.jpg を読み込み
+        img = load_image("kokuu", (40, 40))
+        if img:
+            self.image = img
+        else:
+            self.image = pg.Surface((40, 40))
+            self.image.fill((150, 0, 200))
+
+        self.rect = self.image.get_rect(center=(random.randint(30, 770), 0))
+        self.speed = random.randint(4, 7)
+
+    def update(self):
+        # 落下処理（画面外で消去）
+        self.rect.y += self.speed
+        if self.rect.top > 600:
+            self.kill()
+class BlackHoleManager:
+
+    def __init__(self):
+        self.blackholes = pg.sprite.Group()
+        self.duration = 2500  # 持続時間: 2.5秒
+        self.active_until = 0
+
+        # オーラ用画像の読み込み（60x60サイズ）
+        self.aura_img = load_image("kokuu", (60, 60))
+
+    def update(self, player, item_groups):
+        # 出現率：1/1500
+        if random.randint(1, 1500) == 1:
+            self.blackholes.add(BlackHole())
+
+        self.blackholes.update()
+
+        # キャッチしたら 2.5秒間 吸引モードを発動
+        if pg.sprite.spritecollide(player, self.blackholes, True):
+            self.active_until = pg.time.get_ticks() + self.duration
+
+        # 吸引モード発動中：半径350px以内のリンゴを自機へ強力移動させる
+        if self.is_active():
+            for group in item_groups:
+                for target in group:
+                    dx = player.rect.centerx - target.rect.centerx
+                    dy = player.rect.centery - target.rect.centery
+                    dist = (dx**2 + dy**2) ** 0.5
+                    if 0 < dist < 350:
+                        target.rect.x += int(dx / dist * 6)
+                        target.rect.y += int(dy / dist * 6)
+
+    def is_active(self):
+        # 2.5秒経過前かどうかチェック
+        return pg.time.get_ticks() < self.active_until
+
+    def draw(self, screen, player):
+        self.blackholes.draw(screen)
+
+        # 吸引バフ中はプレイヤーの周りに kokuu.jpg の渦オーラを表示
+        if self.is_active():
+            if self.aura_img:
+                aura_rect = self.aura_img.get_rect(center=player.rect.center)
+                screen.blit(self.aura_img, aura_rect)
+            else:
+                pg.draw.circle(
+                    screen, (150, 0, 200), player.rect.center, 40, 2
+                )
+
 def main():
     pg.init()
     screen = pg.display.set_mode((800, 600))
@@ -102,6 +296,10 @@ def main():
     all_sprites.add(player)
 
     special_manager = SpecialManager() #追加機能3
+
+    shield_manager = ShieldManager()
+    datachip_manager = DataChipManager()
+    blackhole_manager = BlackHoleManager()
 
     score = 0
     start_ticks = pg.time.get_ticks()
@@ -128,6 +326,11 @@ def main():
             all_sprites.update()
 
             score += special_manager.update(player) #追加機能3
+            shield_manager.update(player)  # 追加 シールドの移動・生成・当たり判定を実行
+            score += datachip_manager.update(player)
+            blackhole_manager.update(
+                player, item_groups=[apples]
+            )  # リンゴを引き寄せる
             
             # アイテムのランダム生成
             if random.randint(1, 30) == 1:
@@ -148,6 +351,9 @@ def main():
         all_sprites.draw(screen)
 
         special_manager.draw(screen) #追加機能3
+        shield_manager.draw(screen, player)  # 追加 シールド本体とバリア枠を描画
+        datachip_manager.draw(screen)
+        blackhole_manager.draw(screen, player)
 
         # UI描画
         score_text = font.render(f"Score: {score}", True, (0, 0, 0))
